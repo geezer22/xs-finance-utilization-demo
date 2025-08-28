@@ -1,15 +1,22 @@
 
+from pathlib import Path
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 import streamlit as st
+import matplotlib.pyplot as plt
+import numpy as np
 
 st.set_page_config(page_title="XS Finance & Utilization Demo", layout="wide")
 st.title("XSOLIS-style Finance & Utilization Demo (Synthetic)")
 
 @st.cache_data
 def load():
-    df = pd.read_csv("data/cases_enriched.csv", parse_dates=["admit_date","discharge_date"])
+    # Resolve path relative to this file, not the working directory
+    base = Path(__file__).parent.resolve()
+    csv_path = base / "data" / "cases_enriched.csv"
+    if not csv_path.exists():
+        # Fallback to CWD just in case
+        csv_path = Path("data") / "cases_enriched.csv"
+    df = pd.read_csv(csv_path, parse_dates=["admit_date", "discharge_date"])
     return df
 
 df = load()
