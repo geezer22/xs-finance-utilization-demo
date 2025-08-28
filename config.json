@@ -1,0 +1,19 @@
+{
+  "weights": {
+    "los_days": 0.3,
+    "provider_vs_budget_pct": 0.25,
+    "provider_vs_payer_pct": 0.2,
+    "readmission_flag": 0.15,
+    "drg_severity": 0.1
+  },
+  "drg_severity_map": {
+    "194 Simple Pneumonia": 0.35,
+    "291 Heart Failure": 0.6,
+    "460 Spinal Fusion": 0.95,
+    "871 Sepsis": 0.85,
+    "743 Uterine Proc": 0.5,
+    "418 Septicemia": 0.9
+  },
+  "risk_sigmoid_k": 3.0,
+  "risk_sigmoid_x0": 0.0
+}
