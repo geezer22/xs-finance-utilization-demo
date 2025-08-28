@@ -1,7 +1,17 @@
 # XSOLIS Finance/Utilization Demo
 
-This is a practice project I built to connect my finance/analytics background with healthcare-style data.  
-All data here is synthetic — created only for practice — but the metrics and workflow mirror common healthcare ops/finance reporting.
+>  **Note on the Live Demo**  
+> This project includes a Streamlit app for interactive exploration. The app is deployed on Streamlit Cloud,  
+> but due to file path and container quirks it may occasionally fail to load the data.  
+> 
+> The **code, notebook, and CSVs in this repo are complete and fully runnable locally** with:
+> ```bash
+> pip install -r requirements.txt
+> streamlit run streamlit_app.py
+> ```
+> 
+> I’ve also included screenshots of the outputs in the `images/` folder and the notebook  
+> (`xs_finance_utilization_demo.ipynb`) so you can view the analysis without relying on the live demo.
 
 ---
 
@@ -19,23 +29,24 @@ All data here is synthetic — created only for practice — but the metrics and
 ---
 
 ## Repo Structure
-```
 xs-finance-utilization-demo/
 ├─ data/
-│  ├─ cases.csv
-│  └─ cases_enriched.csv
+│ ├─ cases.csv
+│ └─ cases_enriched.csv
 ├─ images/
-│  ├─ avg_los_by_month.png
-│  ├─ cost_distribution_box.png
-│  ├─ mismatch_rate_by_provider.png
-│  ├─ variance_by_drg.png
-│  └─ waterfall_budget_provider_payer.png
+│ ├─ avg_los_by_month.png
+│ ├─ cost_distribution_box.png
+│ ├─ mismatch_rate_by_provider.png
+│ ├─ variance_by_drg.png
+│ └─ waterfall_budget_provider_payer.png
 ├─ xs_finance_utilization_demo.ipynb
 ├─ streamlit_app.py
 ├─ config.json
 ├─ requirements.txt
 └─ README.md
-```
+
+yaml
+Copy code
 
 ---
 
@@ -45,37 +56,36 @@ xs-finance-utilization-demo/
 ```bash
 pip install -r requirements.txt
 streamlit run streamlit_app.py
-```
 Then open the local URL Streamlit prints (usually http://localhost:8501).
 
-### Notebook
-```bash
+Notebook
+bash
+Copy code
 pip install -r requirements.txt
 jupyter lab   # or: jupyter notebook
-```
-Open `xs_finance_utilization_demo.ipynb` and run all cells.
+Open xs_finance_utilization_demo.ipynb and run all cells.
 
----
+Example Outputs
+Average Length of Stay by Month
 
-## Example Outputs
+Cost Distribution
 
-Average Length of Stay by Month  
-![LOS](images/avg_los_by_month.png)
+Mismatch Rate by Provider
 
-Cost Distribution  
-![Cost](images/cost_distribution_box.png)
+Variance by DRG
 
-Mismatch Rate by Provider  
-![Mismatch](images/mismatch_rate_by_provider.png)
+Budget → Provider → Payer Waterfall
 
-Variance by DRG  
-![Variance](images/variance_by_drg.png)
+Talking Points (Interview)
+Finance impact: quantify budget variance and mismatches between providers/payers in $ terms
 
-Budget → Provider → Payer Waterfall  
-![Waterfall](images/waterfall_budget_provider_payer.png)
+Ops insights: highlight higher-variance DRGs and providers with elevated readmission %
 
----
+Scalability: pipeline could feed BI dashboards or a real-time Streamlit app with hospital feeds
 
-## Notes
-- All data is fake and only for practice.  
-- Goal: demonstrate how I approach **KPI design, reconciliation, and reporting** across finance and utilization metrics.  
+Extendability: add cost priority heuristics or a simple risk model to flag trends
+
+Notes
+All data is fake and only for practice.
+
+Goal: demonstrate how I approach KPI design, reconciliation, and reporting across finance and utilization metrics.
