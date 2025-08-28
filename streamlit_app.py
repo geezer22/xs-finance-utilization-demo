@@ -1,5 +1,6 @@
 # streamlit_app.py
 from pathlib import Path
+import io
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -9,45 +10,80 @@ import matplotlib.pyplot as plt
 st.set_page_config(page_title="XS Finance & Utilization Demo", layout="wide")
 st.title("XSOLIS-style Finance & Utilization Demo (Synthetic)")
 
+# ---------- Config: GitHub raw fallbacks ----------
+GH_BASE = "https://raw.githubusercontent.com/geezer22/xs-finance-utilization-demo/main/data"
+GH_ENRICHED = f"{GH_BASE}/cases_enriched.csv"
+GH_RAW      = f"{GH_BASE}/cases.csv"
+
 # ---------- Data loader (robust for cloud) ----------
 @st.cache_data
 def load_data():
     """
-    - Resolve path relative to this file
-    - Prefer cases_enriched.csv; else fall back to cases.csv and enrich on the fly
-    - Show a tiny debug caption so we can see what the container sees
+    Load data in this order:
+      1) Local: <repo>/data/cases_enriched.csv  (preferred)
+      2) Local: <repo>/data/cases.csv           (then enrich)
+      3) GitHub raw URL: cases_enriched.csv
+      4) GitHub raw URL: cases.csv (then enrich)
+    Also prints debug info so we know what the container sees.
     """
     base = Path(__file__).resolve().parent
     data_dir = base / "data"
+    cwd_dir = Path.cwd() / "data"
 
-    # If some hosts mount differently, try CWD as fallback
-    alt_dir = Path.cwd() / "data"
-    if not data_dir.exists() and alt_dir.exists():
-        data_dir = alt_dir
-
-    # Debug: which CSVs are present?
+    # Debug: show paths and what we can see
     try:
-        csvs_present = sorted(p.name for p in data_dir.glob("*.csv"))
+        local_files = sorted(p.name for p in data_dir.glob("*.csv"))
     except Exception:
-        csvs_present = []
-    st.caption(f"Data dir: {data_dir} | exists: {data_dir.exists()} | files: {csvs_present}")
+        local_files = []
+    try:
+        cwd_files = sorted(p.name for p in cwd_dir.glob("*.csv"))
+    except Exception:
+        cwd_files = []
 
-    enriched_path = data_dir / "cases_enriched.csv"
-    raw_path      = data_dir / "cases.csv"
-
-    if enriched_path.exists():
-        df = pd.read_csv(enriched_path, parse_dates=["admit_date", "discharge_date"])
-        return df, True
-
-    if raw_path.exists():
-        df = pd.read_csv(raw_path, parse_dates=["admit_date", "discharge_date"])
-        df = enrich(df)   # create needed columns so the app can run
-        return df, False
-
-    raise FileNotFoundError(
-        f"Could not find {enriched_path} or {raw_path}. "
-        f"Ensure the repo includes a /data folder with one of those files."
+    st.caption(
+        f"Base: {base} | CWD: {Path.cwd()}  | "
+        f"data_dir exists={data_dir.exists()}, files={local_files}  | "
+        f"cwd/data exists={cwd_dir.exists()}, files={cwd_files}"
     )
+
+    # 1) Local enriched
+    enriched_path = data_dir / "cases_enriched.csv"
+    if enriched_path.exists():
+        return pd.read_csv(enriched_path, parse_dates=["admit_date","discharge_date"])
+
+    # 1b) Local enriched via CWD
+    enriched_cwd = cwd_dir / "cases_enriched.csv"
+    if enriched_cwd.exists():
+        return pd.read_csv(enriched_cwd, parse_dates=["admit_date","discharge_date"])
+
+    # 2) Local raw -> enrich
+    raw_path = data_dir / "cases.csv"
+    if raw_path.exists():
+        return enrich(pd.read_csv(raw_path, parse_dates=["admit_date","discharge_date"]))
+
+    # 2b) Local raw via CWD -> enrich
+    raw_cwd = cwd_dir / "cases.csv"
+    if raw_cwd.exists():
+        return enrich(pd.read_csv(raw_cwd, parse_dates=["admit_date","discharge_date"]))
+
+    # 3) GitHub raw: enriched
+    try:
+        df_url = pd.read_csv(GH_ENRICHED, parse_dates=["admit_date","discharge_date"])
+        st.caption("Loaded from GitHub raw: cases_enriched.csv")
+        return df_url
+    except Exception:
+        pass
+
+    # 4) GitHub raw: raw -> enrich
+    try:
+        df_url = pd.read_csv(GH_RAW, parse_dates=["admit_date","discharge_date"])
+        st.caption("Loaded from GitHub raw: cases.csv (auto-enriched)")
+        return enrich(df_url)
+    except Exception as e:
+        raise FileNotFoundError(
+            "Could not load data from local paths or GitHub raw. "
+            "Ensure your repo has data/cases_enriched.csv or data/cases.csv."
+        ) from e
 
 def enrich(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -55,9 +91,9 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
 
     Creates:
       - prov_budget_pct / prov_payer_pct (+ clipped versions)
+      - mismatch flag if not present
       - robust-scaled LOS (los_norm)
       - simple risk_score (0–100) + priority_bucket
-      - mismatch flag if not present (abs(provider-payer)/payer > 5%)
       - admit_month if not present
     """
     df = df.copy()
@@ -123,8 +159,8 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-# Load data
-df, was_enriched_file = load_data()
+# ---------- Load data ----------
+df = load_data()
 
 # ---------- Sidebar filters ----------
 def safe_unique(col):
@@ -225,7 +261,11 @@ cols = [c for c in [
     "length_of_stay","readmission_30d","mismatch",
     "prov_budget_pct","prov_payer_pct","risk_score","priority_bucket"
 ] if c in dff.columns]
-top = dff.sort_values(["priority_bucket","risk_score"], ascending=[True, False]).head(25) if "priority_bucket" in dff.columns else dff.sort_values("risk_score", ascending=False).head(25)
+top = (
+    dff.sort_values(["priority_bucket","risk_score"], ascending=[True, False]).head(25)
+    if "priority_bucket" in dff.columns
+    else dff.sort_values("risk_score", ascending=False).head(25)
+)
 st.dataframe(top[cols] if cols else top.head(25))
 
 # ---------- Download filtered data ----------
