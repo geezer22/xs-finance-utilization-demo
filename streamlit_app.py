@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+import random
 
 # ---------- Page setup ----------
 st.set_page_config(page_title="XS Finance & Utilization Demo", layout="wide")
@@ -15,6 +17,49 @@ GH_BASE = "https://raw.githubusercontent.com/geezer22/xs-finance-utilization-dem
 GH_ENRICHED = f"{GH_BASE}/cases_enriched.csv"
 GH_RAW      = f"{GH_BASE}/cases.csv"
 
+# ---------- Generate synthetic data as ultimate fallback ----------
+def generate_synthetic_data(n_cases=1000):
+    """Generate synthetic healthcare data as ultimate fallback."""
+    np.random.seed(42)
+    random.seed(42)
+    
+    providers = ["Memorial Health", "City General", "Regional Medical", "St. Mary's", "University Hospital"]
+    payers = ["Medicare", "Medicaid", "Blue Cross", "Aetna", "UnitedHealth", "Cigna", "Self-Pay"]
+    drgs = ["DRG-001", "DRG-002", "DRG-003", "DRG-004", "DRG-005"]
+    
+    # Generate dates over the past year
+    start_date = datetime.now() - timedelta(days=365)
+    
+    data = []
+    for i in range(n_cases):
+        admit_date = start_date + timedelta(days=np.random.randint(0, 365))
+        los = max(1, int(np.random.lognormal(1.5, 0.8)))  # Realistic LOS distribution
+        discharge_date = admit_date + timedelta(days=los)
+        
+        # Base costs with realistic relationships
+        base_cost = np.random.lognormal(8.5, 0.7)  # ~$5k-50k range
+        provider_cost = base_cost * np.random.normal(1.0, 0.15)
+        payer_cost = base_cost * np.random.normal(0.85, 0.12)  # Payers typically pay less
+        budget_cost = base_cost * np.random.normal(0.95, 0.10)  # Budget estimates
+        
+        case = {
+            "case_id": f"CASE-{i+1:04d}",
+            "provider": np.random.choice(providers),
+            "payer": np.random.choice(payers),
+            "drg": np.random.choice(drgs),
+            "admit_date": admit_date,
+            "discharge_date": discharge_date,
+            "length_of_stay": los,
+            "provider_cost": max(0, provider_cost),
+            "payer_cost": max(0, payer_cost),
+            "budget_cost": max(0, budget_cost),
+            "readmission_30d": int(np.random.random() < 0.12),  # ~12% readmission rate
+            "drg_severity": np.random.beta(2, 5),  # Skewed toward lower severity
+        }
+        data.append(case)
+    
+    return pd.DataFrame(data)
+
 # ---------- Data loader (robust for cloud) ----------
 @st.cache_data
 def load_data():
@@ -24,7 +69,7 @@ def load_data():
       2) Local: <repo>/data/cases.csv           (then enrich)
       3) GitHub raw URL: cases_enriched.csv
       4) GitHub raw URL: cases.csv (then enrich)
-    Also prints debug info so we know what the container sees.
+      5) Generate synthetic data (ultimate fallback)
     """
     base = Path(__file__).resolve().parent
     data_dir = base / "data"
@@ -32,11 +77,11 @@ def load_data():
 
     # Debug: show paths and what we can see
     try:
-        local_files = sorted(p.name for p in data_dir.glob("*.csv"))
+        local_files = sorted(p.name for p in data_dir.glob("*.csv")) if data_dir.exists() else []
     except Exception:
         local_files = []
     try:
-        cwd_files = sorted(p.name for p in cwd_dir.glob("*.csv"))
+        cwd_files = sorted(p.name for p in cwd_dir.glob("*.csv")) if cwd_dir.exists() else []
     except Exception:
         cwd_files = []
 
@@ -49,41 +94,54 @@ def load_data():
     # 1) Local enriched
     enriched_path = data_dir / "cases_enriched.csv"
     if enriched_path.exists():
-        return pd.read_csv(enriched_path, parse_dates=["admit_date","discharge_date"])
+        try:
+            return pd.read_csv(enriched_path, parse_dates=["admit_date","discharge_date"])
+        except Exception as e:
+            st.warning(f"Error reading local enriched file: {e}")
 
     # 1b) Local enriched via CWD
     enriched_cwd = cwd_dir / "cases_enriched.csv"
     if enriched_cwd.exists():
-        return pd.read_csv(enriched_cwd, parse_dates=["admit_date","discharge_date"])
+        try:
+            return pd.read_csv(enriched_cwd, parse_dates=["admit_date","discharge_date"])
+        except Exception as e:
+            st.warning(f"Error reading CWD enriched file: {e}")
 
     # 2) Local raw -> enrich
     raw_path = data_dir / "cases.csv"
     if raw_path.exists():
-        return enrich(pd.read_csv(raw_path, parse_dates=["admit_date","discharge_date"]))
+        try:
+            return enrich(pd.read_csv(raw_path, parse_dates=["admit_date","discharge_date"]))
+        except Exception as e:
+            st.warning(f"Error reading local raw file: {e}")
 
     # 2b) Local raw via CWD -> enrich
     raw_cwd = cwd_dir / "cases.csv"
     if raw_cwd.exists():
-        return enrich(pd.read_csv(raw_cwd, parse_dates=["admit_date","discharge_date"]))
+        try:
+            return enrich(pd.read_csv(raw_cwd, parse_dates=["admit_date","discharge_date"]))
+        except Exception as e:
+            st.warning(f"Error reading CWD raw file: {e}")
 
     # 3) GitHub raw: enriched
     try:
         df_url = pd.read_csv(GH_ENRICHED, parse_dates=["admit_date","discharge_date"])
-        st.caption("Loaded from GitHub raw: cases_enriched.csv")
+        st.caption("✅ Loaded from GitHub raw: cases_enriched.csv")
         return df_url
-    except Exception:
-        pass
+    except Exception as e:
+        st.caption(f"⚠️ Could not load from GitHub enriched: {e}")
 
     # 4) GitHub raw: raw -> enrich
     try:
         df_url = pd.read_csv(GH_RAW, parse_dates=["admit_date","discharge_date"])
-        st.caption("Loaded from GitHub raw: cases.csv (auto-enriched)")
+        st.caption("✅ Loaded from GitHub raw: cases.csv (auto-enriched)")
         return enrich(df_url)
     except Exception as e:
-        raise FileNotFoundError(
-            "Could not load data from local paths or GitHub raw. "
-            "Ensure your repo has data/cases_enriched.csv or data/cases.csv."
-        ) from e
+        st.caption(f"⚠️ Could not load from GitHub raw: {e}")
+
+    # 5) Ultimate fallback: generate synthetic data
+    st.info("🔧 No data files found. Generating synthetic data for demo purposes.")
+    return enrich(generate_synthetic_data())
 
 def enrich(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -194,7 +252,7 @@ def fnum(x):
 c1.metric("Cases", fnum(len(dff)))
 
 los_mean = dff["length_of_stay"].mean() if "length_of_stay" in dff.columns else np.nan
-c2.metric("Avg LOS (days)", f"{los_mean:.2f}" if np.isfinite(los_mean) else "—")
+c2.metric("Avg LOS (days)", f"{los_mean:.1f}" if np.isfinite(los_mean) else "—")
 
 readmit = dff["readmission_30d"].mean() if "readmission_30d" in dff.columns else np.nan
 c3.metric("Readmit Rate", pct(readmit) if readmit == readmit else "—")
@@ -214,17 +272,18 @@ if "admit_month" not in dff.columns and "admit_date" in dff.columns:
 
 if {"admit_month", "length_of_stay"} <= set(dff.columns):
     los_by_month = dff.groupby("admit_month")["length_of_stay"].mean()
-else:
-    los_by_month = pd.Series(dtype=float)
-
-fig1, ax1 = plt.subplots()
-los_by_month.plot(ax=ax1)
-ax1.set_title("Average Length of Stay by Month")
-ax1.set_xlabel("Month")
-ax1.set_ylabel("Avg LOS (days)")
-ax1.grid(True, alpha=0.2)
-fig1.tight_layout()
-st.pyplot(fig1)
+    
+    if len(los_by_month) > 0:
+        fig1, ax1 = plt.subplots(figsize=(10, 4))
+        los_by_month.plot(ax=ax1, marker='o')
+        ax1.set_title("Average Length of Stay by Month")
+        ax1.set_xlabel("Month")
+        ax1.set_ylabel("Avg LOS (days)")
+        ax1.grid(True, alpha=0.3)
+        fig1.tight_layout()
+        st.pyplot(fig1)
+    else:
+        st.info("No data available for LOS trend chart")
 
 # ---------- Chart 2: Mismatch rate by provider ----------
 st.subheader("Mismatch Rate by Provider")
@@ -235,24 +294,31 @@ elif {"provider", "prov_payer_pct"} <= set(dff.columns):
 else:
     mm = pd.Series(dtype=float)
 
-fig2, ax2 = plt.subplots(figsize=(8, 4))
-mm.plot(kind="barh", ax=ax2)
-ax2.set_xlabel("Mismatch Rate")
-ax2.set_ylabel("Provider")
-ax2.set_title("Mismatch Rate by Provider")
-fig2.tight_layout()
-st.pyplot(fig2)
+if len(mm) > 0:
+    fig2, ax2 = plt.subplots(figsize=(10, max(4, len(mm) * 0.3)))
+    mm.plot(kind="barh", ax=ax2, color='lightcoral')
+    ax2.set_xlabel("Mismatch Rate")
+    ax2.set_ylabel("Provider")
+    ax2.set_title("Mismatch Rate by Provider")
+    ax2.grid(True, alpha=0.3)
+    fig2.tight_layout()
+    st.pyplot(fig2)
+else:
+    st.info("No data available for mismatch rate chart")
 
 # ---------- Chart 3: Risk distribution ----------
 st.subheader("Risk Score Distribution")
-if "risk_score" in dff.columns:
-    fig3, ax3 = plt.subplots()
-    dff["risk_score"].plot(kind="hist", bins=20, ax=ax3)
+if "risk_score" in dff.columns and len(dff) > 0:
+    fig3, ax3 = plt.subplots(figsize=(8, 4))
+    dff["risk_score"].plot(kind="hist", bins=20, ax=ax3, color='skyblue', alpha=0.7)
     ax3.set_xlabel("Risk Score")
     ax3.set_ylabel("Count")
     ax3.set_title("Risk Score Distribution")
+    ax3.grid(True, alpha=0.3)
     fig3.tight_layout()
     st.pyplot(fig3)
+else:
+    st.info("No data available for risk score distribution")
 
 # ---------- Top flagged cases ----------
 st.subheader("Top High-Priority Cases")
@@ -261,27 +327,43 @@ cols = [c for c in [
     "length_of_stay","readmission_30d","mismatch",
     "prov_budget_pct","prov_payer_pct","risk_score","priority_bucket"
 ] if c in dff.columns]
-top = (
-    dff.sort_values(["priority_bucket","risk_score"], ascending=[True, False]).head(25)
-    if "priority_bucket" in dff.columns
-    else dff.sort_values("risk_score", ascending=False).head(25)
-)
-st.dataframe(top[cols] if cols else top.head(25))
+
+if len(dff) > 0:
+    top = (
+        dff.sort_values(["priority_bucket","risk_score"], ascending=[True, False]).head(25)
+        if "priority_bucket" in dff.columns
+        else dff.sort_values("risk_score", ascending=False).head(25)
+    )
+    
+    # Format percentage columns for display
+    display_df = top[cols] if cols else top.head(25)
+    if "prov_budget_pct" in display_df.columns:
+        display_df = display_df.copy()
+        display_df["prov_budget_pct"] = display_df["prov_budget_pct"].apply(lambda x: f"{x:.1%}" if pd.notnull(x) else "—")
+    if "prov_payer_pct" in display_df.columns:
+        display_df["prov_payer_pct"] = display_df["prov_payer_pct"].apply(lambda x: f"{x:.1%}" if pd.notnull(x) else "—")
+    
+    st.dataframe(display_df, use_container_width=True)
+else:
+    st.info("No cases match the current filters")
 
 # ---------- Download filtered data ----------
 @st.cache_data
 def to_csv_bytes(df_in: pd.DataFrame) -> bytes:
     return df_in.to_csv(index=False).encode("utf-8")
 
-st.download_button(
-    "Download filtered CSV",
-    data=to_csv_bytes(dff),
-    file_name="filtered_cases.csv",
-    mime="text/csv",
-)
+if len(dff) > 0:
+    st.download_button(
+        "📥 Download filtered CSV",
+        data=to_csv_bytes(dff),
+        file_name="filtered_cases.csv",
+        mime="text/csv",
+    )
 
 # ---------- Footer ----------
+st.markdown("---")
 st.caption(
-    "Data is synthetic and for practice only. If only cases.csv is found, the app enriches it on the fly "
-    "to include variance fields and a simple, explainable risk score."
+    "🔬 **Demo Note:** Data is synthetic and for demonstration purposes only. "
+    "The app automatically generates realistic healthcare data if no source files are found. "
+    "Risk scores are calculated using a simple model combining LOS, cost variances, and readmission history."
 )
